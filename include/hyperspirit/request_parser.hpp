@@ -1,8 +1,8 @@
 // Copyright (c) 2017, Christopher Gilbert / DISINT LTD
 // All rights reserved.
 
-#ifndef HTTP_PARSER_REQUEST_PARSER_HPP
-#define HTTP_PARSER_REQUEST_PARSER_HPP
+#ifndef HYPERSPIRIT_HTTP_REQUEST_PARSER_HPP
+#define HYPERSPIRIT_HTTP_REQUEST_PARSER_HPP
 
 #include <boost/config/warning_disable.hpp>
 #include <boost/optional.hpp>
@@ -19,167 +19,171 @@
 #include <string>
 #include <complex>
 
-namespace client
+namespace hyperspirit
 {
-    namespace qi = boost::spirit::qi;
-    namespace ascii = boost::spirit::ascii;
-
-    enum method_t
+    namespace http
     {
-        request_options,
-        request_get,
-        request_head,
-        request_post,
-        request_put,
-        request_delete,
-        request_trace,
-        request_connect
-    };
+        namespace qi    = boost::spirit::qi;
+        namespace ascii = boost::spirit::ascii;
 
-    struct uri
-    {
-        typedef std::map<std::string, std::string> query_t;
+        enum method_t {
+            request_options,
+            request_get,
+            request_head,
+            request_post,
+            request_put,
+            request_delete,
+            request_trace,
+            request_connect
+        }; // enum method_t
 
-        boost::optional<std::string> root;
-        boost::optional<std::string> hierarchy;
-        boost::optional<query_t>     queries;
-        boost::optional<std::string> fragment;
-    };
+        struct uri_t
+        {
+            typedef std::map<std::string, std::string> query_type;
 
-    struct http_request
-    {
-        typedef std::map<std::string, std::string> headers_t;
+            boost::optional<std::string> root;
+            boost::optional<std::string> hierarchy;
+            boost::optional<query_type>  queries;
+            boost::optional<std::string> fragment;
+        }; // struct uri_t
 
-        method_t    method;
-        uri         uri;
-        std::string version;
-        headers_t   headers;
-    };
-}
+        struct request_t
+        {
+            typedef std::map<std::string, std::string> headers_type;
+
+            method_t     method;
+            uri_t        uri;
+            std::string  version;
+            headers_type headers;
+        }; // struct request_t
+
+    } // namespace http
+} // namespace hyperspirit
 
 BOOST_FUSION_ADAPT_STRUCT(
-        client::uri,
-        (boost::optional<std::string>, root)
-        (boost::optional<std::string>, hierarchy)
-        (boost::optional<client::uri::query_t>, queries)
-        (boost::optional<std::string>, fragment)
+        hyperspirit::http::uri_t,
+        (boost::optional<std::string>,                          root)
+        (boost::optional<std::string>,                          hierarchy)
+        (boost::optional<hyperspirit::http::uri_t::query_type>, queries)
+        (boost::optional<std::string>,                          fragment)
 )
 
 BOOST_FUSION_ADAPT_STRUCT(
-        client::http_request,
-        (client::method_t, method)
-        (client::uri, uri)
-        (std::string, version)
-        (client::http_request::headers_t, headers)
+        hyperspirit::http::request_t,
+        (hyperspirit::http::method_t,                method)
+        (hyperspirit::http::uri_t,                   uri)
+        (std::string,                                version)
+        (hyperspirit::http::request_t::headers_type, headers)
 )
 
-namespace client
+namespace hyperspirit
 {
-    template <typename Iterator>
-    struct uri_encoded_data_parser : qi::grammar<Iterator, std::map<std::string, std::string>()>
+    namespace http
     {
-        uri_encoded_data_parser() : uri_encoded_data_parser::base_type(start)
+        template<typename Iterator>
+        struct uri_encoded_data_grammar : qi::grammar<Iterator, std::map<std::string, std::string>()>
         {
-            using ascii::char_;
+            uri_encoded_data_grammar() : uri_encoded_data_grammar::base_type(start)
+            {
+                using ascii::char_;
 
-            start = query_pair % '&';
+                start = query_pair % '&';
 
-            query_pair = url_encoded_string >> '=' >> url_encoded_string;
+                query_pair = url_encoded_string >> '=' >> url_encoded_string;
 
-            url_encoded_string = +( ('%' >> encoded_hex) | ~char_( "=&# " ) );
-        }
+                url_encoded_string = +(('%' >> encoded_hex) | ~char_("=&# "));
+            }
 
-        qi::rule<Iterator, std::map<std::string, std::string>()> start;
-        qi::rule<Iterator, std::pair<std::string,std::string>()> query_pair;
-        qi::rule<Iterator, std::string()>                        url_encoded_string;
-        qi::uint_parser<char, 16, 2, 2>                          encoded_hex;
-    };
+            qi::rule<Iterator, std::map<std::string, std::string>()>  start;
+            qi::rule<Iterator, std::pair<std::string, std::string>()> query_pair;
+            qi::rule<Iterator, std::string()>                         url_encoded_string;
+            qi::uint_parser<char, 16, 2, 2>                           encoded_hex;
+        }; // struct uri_encoded_data_grammar
 
-    template <typename Iterator >
-    struct uri_parser : qi::grammar< Iterator, uri() >
-    {
-        uri_parser() : uri_parser::base_type(start)
+        template<typename Iterator>
+        struct uri_grammar : qi::grammar<Iterator, uri_t()>
         {
-            using qi::lit;
-            using ascii::char_;
+            uri_grammar() : uri_grammar::base_type(start)
+            {
+                using qi::lit;
+                using ascii::char_;
 
-            // Based on RFC3986
-            // host  = https://tools.ietf.org/html/rfc3986#section-3.2.2
-            // port  = https://tools.ietf.org/html/rfc3986#section-3.2.3
-            // path  = https://tools.ietf.org/html/rfc3986#section-3.3
-            // query = https://tools.ietf.org/html/rfc3986#section-3.4
+                // Based on RFC3986
+                // host  = https://tools.ietf.org/html/rfc3986#section-3.2.2
+                // port  = https://tools.ietf.org/html/rfc3986#section-3.2.3
+                // path  = https://tools.ietf.org/html/rfc3986#section-3.3
+                // query = https://tools.ietf.org/html/rfc3986#section-3.4
 
-            start =
-                        lit('/')
+                start = lit('/')
                      >> -(+(~char_("/?# ")))
                      >> -('/' >> +(~char_("?# ")))
                      >> -('?' >> uri_encoded_data)
                      >> -('#' >> +(~char_(' ')))
-                    ;
-        }
+                      ;
+            }
 
-        qi::rule<Iterator, uri()>         start;
-        uri_encoded_data_parser<Iterator> uri_encoded_data;
-    };
+            qi::rule<Iterator, uri_t()>        start;
+            uri_encoded_data_grammar<Iterator> uri_encoded_data;
+        }; // struct uri_grammar
 
-    struct method_ : qi::symbols<char, client::method_t>
-    {
-        method_()
+        struct method_symbols_ : qi::symbols<char, method_t>
         {
-            add
-                ("OPTIONS", client::method_t::request_options)
-                ("GET",     client::method_t::request_get)
-                ("HEAD",    client::method_t::request_head)
-                ("POST",    client::method_t::request_post)
-                ("PUT",     client::method_t::request_put)
-                ("DELETE",  client::method_t::request_delete)
-                ("TRACE",   client::method_t::request_trace)
-                ("CONNECT", client::method_t::request_connect)
-                ;
-        }
-    } method;
+            method_symbols_()
+            {
+                add
+                    ("OPTIONS", method_t::request_options)
+                    ("GET",     method_t::request_get)
+                    ("HEAD",    method_t::request_head)
+                    ("POST",    method_t::request_post)
+                    ("PUT",     method_t::request_put)
+                    ("DELETE",  method_t::request_delete)
+                    ("TRACE",   method_t::request_trace)
+                    ("CONNECT", method_t::request_connect);
+            }
+        } method_symbols;
 
-    template <typename Iterator>
-    struct request_parser : qi::grammar<Iterator, http_request()>
-    {
-        request_parser() : request_parser::base_type(start)
+        template<typename Iterator>
+        struct request_grammar : qi::grammar<Iterator, request_t()>
         {
-            using qi::int_;
-            using qi::lit;
-            using qi::double_;
-            using qi::lexeme;
-            using qi::raw;
-            using qi::omit;
-            using ascii::char_;
+            request_grammar() : request_grammar::base_type(start)
+            {
+                using qi::int_;
+                using qi::lit;
+                using qi::double_;
+                using qi::lexeme;
+                using qi::raw;
+                using qi::omit;
+                using ascii::char_;
 
-            start %=
-                       method >> ' ' >> uri_ref >> ' ' >> http_version >> crlf
-                    >> *header
-                    >> crlf
-                    ;
+                start %= method_symbols >> ' ' >> uri_ref >> ' ' >> http_version >> crlf
+                      >> *header
+                      >> crlf
+                      ;
 
-            crlf = lexeme[lit('\x0d') >> lit('\x0a')];
+                crlf = lexeme[lit('\x0d') >> lit('\x0a')];
 
-            lws = omit[-crlf >> *char_(" \x09")];
+                lws = omit[-crlf >> *char_(" \x09")];
 
-            http_version = lexeme["HTTP/" >> raw[int_ >> '.' >> int_]];
+                http_version = lexeme["HTTP/" >> raw[int_ >> '.' >> int_]];
 
-            header = token >> ':' >> lws >> field_value >> crlf;
+                header = field_name >> ':' >> lws >> field_value >> crlf;
 
-            token = +(~char_("()<>@,;:\\\"/[]?={} \x09"));
+                field_name = +(~char_("()<>@,;:\\\"/[]?={} \x09"));
 
-            field_value = *(char_ - crlf);
-        }
+                field_value = *(char_ - crlf);
+            }
 
-        qi::rule<Iterator, http_request()>                        start;
-        uri_parser<Iterator>                                      uri_ref;
-        qi::rule<Iterator>                                        crlf;
-        qi::rule<Iterator>                                        lws;
-        qi::rule<Iterator, std::string()>                         http_version;
-        qi::rule<Iterator, std::pair<std::string, std::string>()> header;
-        qi::rule<Iterator, std::string()>                         token;
-        qi::rule<Iterator, std::string()>                         field_value;
-    };
-}
+            qi::rule<Iterator, request_t()>                           start;
+            uri_grammar<Iterator>                                     uri_ref;
+            qi::rule<Iterator>                                        crlf;
+            qi::rule<Iterator>                                        lws;
+            qi::rule<Iterator, std::string()>                         http_version;
+            qi::rule<Iterator, std::pair<std::string, std::string>()> header;
+            qi::rule<Iterator, std::string()>                         field_name;
+            qi::rule<Iterator, std::string()>                         field_value;
+        }; // struct request_grammar
 
-#endif //HTTP_PARSER_REQUEST_PARSER_HPP
+    } // namespace http
+} // namespace hyperspirit
+
+#endif // HYPERSPIRIT_HTTP_REQUEST_PARSER_HPP
